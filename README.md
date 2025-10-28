@@ -1,110 +1,120 @@
 # RS Driver Documentation
 
-## rs_driver.c – Device Driver
+## rs_driver.c – The Kernel Driver
 
-### 1. `rs_open(struct inode *inode, struct file *file)`
+This driver is a Linux kernel component that creates two separate virtual devices for handling encoding and decoding jobs.
 
-- Called when the user-space app opens `/dev/rs_driver`.
-- Sets up the device for communication.
-- **Parameters:**
+### Device Files and Jobs
 
-  - `inode`: Kernel structure representing the file on disk.
-  - `file`: Structure representing the opened file instance.
+The driver works by using normal file commands (read and write) on two special files it creates in the /dev folder:
 
-- **Returns:** 0 on success.
+/dev/encoded (Minor 0): Used for Encoding. You write your raw data, and then you read back the full block (data + parity/protection).
 
-### 2. `rs_release(struct inode *inode, struct file *file)`
+/dev/decoded (Minor 1): Used for Decoding. You write the full protected block, and then you read back the corrected original data.
 
-- Called when the device file is closed.
-- Cleans up any temporary state.
-- **Returns:** 0.
+Key Kernel Functions
 
-### 3. `rs_ioctl(struct file *file, unsigned int cmd, unsigned long arg)`
+The driver uses unique read and write functions for the encode and decode devices, since it skips the standard generic open or release setup steps.
 
-- Handles IOCTL commands for communication between user and kernel space.
-- **Parameters:**
+1. Configuration: rs_ioctl(struct file \*file, unsigned int cmd, unsigned long arg)
 
-  - `file`: Pointer to the opened device.
-  - `cmd`: IOCTL command code.
-  - `arg`: Pointer to user-space data.
+This is the only special command handler used to set up the driver's configuration.
 
-- **Commands:**
+Inputs (Parameters):
 
-  - `RS_IOCTL_SET_DATA`: Copies data from user space to kernel.
-  - `RS_IOCTL_GET_DATA`: Copies data from kernel to user.
-  - `RS_IOCTL_RESET`: Resets the stored kernel data.
+file: The device you opened (/dev/encoded or /dev/decoded).
 
-- **Returns:**
+cmd: The specific command code.
 
-  - 0 on success.
-  - `-EFAULT` if data copy fails.
-  - `-EINVAL` if invalid command.
+arg: The settings data (struct rs_params) coming from your application.
 
-### 4. `rs_driver_init(void)`
+Supported Command:
 
-- Called when the module is loaded using `insmod`.
-- Registers the device with the kernel and allocates a device number.
-- **Returns:** 0 on success or a negative error code.
+RS_SET_PARAMS: This takes the settings from your app and initializes the kernel's Reed-Solomon core (rs_decoder). It uses a kernel lock (rs_lock) to make sure setup is safe.
 
-### 5. `rs_driver_exit(void)`
+What it returns:
 
-- Called when the module is unloaded using `rmmod`.
-- Unregisters the device and releases allocated resources.
+0 if everything worked.
 
----
+-EFAULT if it couldn't copy the settings correctly.
 
-## rs_app.c – User App
+-ENOTTY if the command's unique ID is wrong.
 
-### 1. `main()`
+2. Encoding Jobs
 
-- Entry point of the user-space program.
-- Demonstrates how to communicate with the kernel driver using IOCTL calls.
-- Steps:
+The encoding process uses two main functions:
 
-  1. Opens `/dev/rs_driver` using `open()`.
-  2. Sends data using `ioctl(fd, RS_IOCTL_SET_DATA, &data)`.
-  3. Reads data back using `ioctl(fd, RS_IOCTL_GET_DATA, &data)`.
-  4. Optionally resets data using `ioctl(fd, RS_IOCTL_RESET, NULL)`.
-  5. Closes the device using `close(fd)`.
+rs_encode_write (Takes data to protect): Copies your data, runs the encode_rs8() function to create the parity bits, and saves the whole thing (data + parity) in the driver's buffer.
 
-- **Returns:** 0 on success.
+rs_encode_read (Sends back the protected block): Copies the entire data + parity buffer back to your application.
 
-**Key Functions Used:**
+3. Decoding Jobs
 
-- `open()`: Opens the driver device file.
-- `ioctl()`: Sends commands and data to the driver.
-- `close()`: Closes the driver file.
+The decoding process also uses two main functions:
 
----
+rs_decode_write (Takes the potentially damaged protected block): Copies the block, runs the decode_rs8() function to fix errors, and prints how many errors it fixed.
 
-## rs_driver_ioctl.h – IOCTL Definitions
+rs_decode_read (Sends the fixed message back): Copies only the original message (without the parity bits) from the corrected buffer back to your application.
 
-### 1. IOCTL Macros
+4. Module Start and Stop
 
-Defines commands that the user-space program sends to the kernel module.
+These functions handle the driver lifecycle:
 
-- `RS_IOCTL_MAGIC`: Unique identifier for this driver’s IOCTLs.
-- `RS_IOCTL_SET_DATA`: Write operation from user to kernel.
-- `RS_IOCTL_GET_DATA`: Read operation from kernel to user.
-- `RS_IOCTL_RESET`: Command to reset driver’s internal data.
+startup_func (Module Load - insmod): Runs when you load the module. It registers the device, sets up the internal structure (cdev_init), and creates the /dev/encoded and /dev/decoded files.
 
-### 2. Data Structure
+cleanup_func (Module Unload - rmmod): Runs when you unload the module. It removes the device files, cleans up the class, unregisters the devices, and frees up all the memory used by the RS core.
 
-If a data structure is defined (like `struct rs_data`), it holds the values passed between user and kernel.
+rs_app.c – The Test Application
 
-**Example:**
+This application shows you step-by-step how to set up the driver and run a full encode-decode test.
 
-```c
+How the main() Program Works
+
+The main function handles the entire process in sequential steps:
+
+Set Up: Defines the standard Reed-Solomon settings (like nroots = 32).
+
+Open Doors: Opens two file "doors": one (encode_fd) for the /dev/encoded device and one (decode_fd) for /dev/decoded.
+
+Send Config: Uses the ioctl() command to send the settings to the kernel driver.
+
+Encode Data: Uses write() on the encode door to send the original message.
+
+Get Block: Uses read() on the encode door to grab the full protected block (message + parity).
+
+Decode Data: Uses write() on the decode door to send the full block for error correction.
+
+Get Message: Uses read() on the decode door to get the final, corrected message.
+
+Check: Compares the final message to the original one to confirm success.
+
+Key C Library Functions Used:
+
+open(): Opens the device files.
+
+ioctl(): Sends the configuration to the driver.
+
+write(): Sends data in both the encode and decode steps.
+
+read(): Gets the encoded block and the final corrected message.
+
+close(): Shuts the device file doors.
+
+Helper Function
+
+The rs_app.c includes one helpful function:
+
+print_buffer_hex: A handy tool that displays the raw data bytes in hexadecimal, which is useful for seeing the parity bits in the encoded block.
+
+rs_driver_ioctl.h – Shared Settings
+
+This header file holds the crucial settings and commands that both the kernel and your application must agree on.
+
+IOCTL Macros
+
+This is the single command used to configure the RS logic:
+
 #define RS_IOCTL_MAGIC 'r'
-#define RS_IOCTL_SET_DATA _IOW(RS_IOCTL_MAGIC, 1, int)
-#define RS_IOCTL_GET_DATA _IOR(RS_IOCTL_MAGIC, 2, int)
-#define RS_IOCTL_RESET    _IO(RS_IOCTL_MAGIC, 3)
-```
+#define RS_SET_PARAMS \_IOW(RS_IOCTL_MAGIC, 0, struct rs_params)
 
----
-
-**Overall Flow:**
-
-1. `rs_driver.c` implements the kernel module.
-2. `rs_driver_ioctl.h` defines shared IOCTL commands.
-3. `rs_app.c` is the user-space interface to send and receive data using those commands.
+The \_IOW part just means this command is used to Write data In (settings) from your app to the kernel.
