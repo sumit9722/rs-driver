@@ -40,57 +40,13 @@
   - `-EFAULT` if data copy fails.
   - `-EINVAL` if invalid command.
 
-### 5. `decode_read(char __user *buf, size_t count)`
-
-- Reads raw data from the device and decodes it before returning to user space.
-- **Parameters:**
-
-  - `buf` — user-space buffer pointer to copy decoded bytes into.
-  - `count` — number of bytes requested.
-
-- **What it does:** reads internal/raw buffer, applies decoding (e.g., unescape, decrypt, or parse), copies up to `count` bytes to `buf` using `copy_to_user()`.
-- **Returns:** number of bytes copied on success, `-EFAULT` on copy error, or negative error code.
-
-### 6. `decode_write(const char __user *buf, size_t count)`
-
-- Accepts encoded data from user space, decodes it, and stores it in the device buffer.
-- **Parameters:**
-
-  - `buf` — user-space buffer pointer containing encoded data.
-  - `count` — number of bytes provided.
-
-- **What it does:** copies from user with `copy_from_user()`, decodes (e.g., unescape, decrypt), validates, and writes to internal storage.
-- **Returns:** number of bytes consumed on success, `-EFAULT` on copy error, or negative error code.
-
-### 7. `encode_read(char __user *buf, size_t count)`
-
-- Reads raw device data, encodes it (e.g., escape, encrypt, or format), and sends to user space.
-- **Parameters:**
-
-  - `buf` — user-space buffer for encoded output.
-  - `count` — maximum bytes to write.
-
-- **What it does:** reads internal data, applies encoding, then `copy_to_user()` up to `count` bytes.
-- **Returns:** number of bytes copied, `-EFAULT` on error, or negative error code.
-
-### 8. `encode_write(const char __user *buf, size_t count)`
-
-- Receives plain data from user space, encodes it, and stores/sends to hardware.
-- **Parameters:**
-
-  - `buf` — user-space pointer containing plain data.
-  - `count` — number of bytes.
-
-- **What it does:** `copy_from_user()` then encodes (e.g., escape, add checksum, encrypt) before writing to device buffer or hardware.
-- **Returns:** number of bytes processed, `-EFAULT` on error, or negative error code.
-
-### 9. `rs_driver_init(void)`
+### 4. `rs_driver_init(void)`
 
 - Called when the module is loaded using `insmod`.
 - Registers the device with the kernel and allocates a device number.
 - **Returns:** 0 on success or a negative error code.
 
-### 10. `rs_driver_exit(void)`
+### 5. `rs_driver_exit(void)`
 
 - Called when the module is unloaded using `rmmod`.
 - Unregisters the device and releases allocated resources.
