@@ -96,7 +96,7 @@ The file defines the unique command used for driver configuration:
 ### **struct rs\_params**
 
 This structure defines the Reed-Solomon code parameters:  
-``` struct rs\_params {  
+```c struct rs_params {  
 	int symsize;  // Symbol size in bits (e.g., 8\)  
 	int gfpoly;   // Generator polynomial for the Galois field (e.g., 0x11d)  
 	int fcr;      // First consecutive root of the generator polynomial  
